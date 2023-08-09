@@ -1,0 +1,24 @@
+[package]
+name = "udmp-parser-rs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Axel '0vercl0k' Souchet"]
+categories = ["parser-implementations"]
+description = "A Rust crate for parsing Windows user minidumps"
+include = [
+    "/Cargo.toml",
+    "/LICENSE",
+    "/src/**",
+    "/examples/**",
+    "README.md",
+]
+keywords = ["windows", "minidump", "crashdump"]
+license = "MIT"
+repository = "https://github.com/0vercl0k/udmp-parser-rs"
+rust-version = "1.65"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[[example]]
+name = "parser"
+[profile.release]
+panic = "abort"
