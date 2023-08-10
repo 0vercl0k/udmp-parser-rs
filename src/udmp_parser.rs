@@ -580,8 +580,8 @@ impl<'a> UserDumpParser<'a> {
             entry.data = Self::slice_from_location_descriptor(
                 cursor,
                 LocationDescriptor32 {
-                    data_size: data_offset.try_into().unwrap(),
-                    rva: descriptor.data_size.try_into().unwrap(),
+                    rva: data_offset.try_into().unwrap(),
+                    data_size: descriptor.data_size.try_into().unwrap(),
                 },
             )?;
 
