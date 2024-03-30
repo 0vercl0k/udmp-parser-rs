@@ -1,6 +1,7 @@
 // Axel '0vercl0k' Souchet - July 20 2023
 use std::env;
 use std::result::Result;
+
 use udmp_parser_rs::UserDumpParser;
 
 /// Command line argument.
