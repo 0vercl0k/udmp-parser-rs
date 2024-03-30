@@ -76,10 +76,10 @@ impl<'a> Drop for MappedFile<'a> {
 }
 
 #[cfg(windows)]
+#[allow(non_camel_case_types, clippy::upper_case_acronyms)]
 /// Module that implements memory mapping on Windows using CreateFileMappingA /
 /// MapViewOfFile.
 mod windows {
-    #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
     use std::os::windows::prelude::AsRawHandle;
     use std::os::windows::raw::HANDLE;
 
