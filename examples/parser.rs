@@ -2,7 +2,7 @@
 use std::env;
 use std::result::Result;
 
-use udmp_parser_rs::UserDumpParser;
+use udmp_parser::UserDumpParser;
 
 /// Command line argument.
 struct Cli {
