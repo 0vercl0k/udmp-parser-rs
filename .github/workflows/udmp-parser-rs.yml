@@ -11,10 +11,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up rust
-        run: rustup default stable
+        run: rustup default nightly
+
+      - name: Install rustfmt
+        run: rustup component add rustfmt
 
       - name: cargo fmt
-        run: cargo fmt --check
+        run: cargo +nightly fmt --check
 
   clippy:
     name: clippy
@@ -63,6 +66,9 @@ jobs:
 
       - name: cargo test
         run: cargo test
+
+      - name: cargo test release
+        run: cargo test --release
 
       - name: cargo build
         run: cargo build --release --example parser
