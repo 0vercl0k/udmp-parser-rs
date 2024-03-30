@@ -185,8 +185,8 @@ pub struct ModuleEntry {
     pub version_info: FixedFileInfo,
     pub cv_record: LocationDescriptor32,
     pub misc_record: LocationDescriptor32,
-    pub reserved0: u64,
-    pub reserved1: u64,
+    _reserved0: u64,
+    _reserved1: u64,
 }
 
 #[derive(Debug, PartialEq)]
@@ -435,8 +435,9 @@ impl Default for ThreadContextX64 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::mem;
+
+    use super::*;
 
     /// Ensure that the sizes of key structures are right.
     #[test]

@@ -1,6 +1,6 @@
-# udmp-parser-rs: A Rust crate for parsing Windows user minidumps
-[![Crates.io](https://img.shields.io/crates/v/udmp-parser-rs.svg)](https://crates.io/crates/udmp-parser-rs)
-[![Documentation](https://docs.rs/udmp-parser-rs/badge.svg)](https://docs.rs/udmp-parser-rs/)
+# udmp-parser: A Rust crate for parsing Windows user minidumps
+[![Crates.io](https://img.shields.io/crates/v/udmp-parser.svg)](https://crates.io/crates/udmp-parser)
+[![Documentation](https://docs.rs/udmp-parser/badge.svg)](https://docs.rs/udmp-parser/)
 ![Build status](https://github.com/0vercl0k/udmp-parser-rs/workflows/Builds/badge.svg)
 
 This is a cross-platform crate that parses Windows user [minidump](https://docs.microsoft.com/en-us/windows/win32/debug/minidump-files) dumps that you can generate via WinDbg or via right-click **Create memory dump file** in the Windows task manager.

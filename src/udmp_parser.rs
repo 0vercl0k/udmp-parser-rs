@@ -1,54 +1,65 @@
 // Axel '0vercl0k' Souchet - July 29 2023
-//! This module is where the parsing logic is implemented. The [`UserDumpParser`] can memory map a file by default but
-//! users can also build an instance from a slice they got from somewhere else.
-use crate::map::Cursor;
-use crate::map::MappedFile;
-use crate::structs::*;
+//! This module is where the parsing logic is implemented. The
+//! [`UserDumpParser`] can memory map a file by default but users can also build
+//! an instance from a slice they got from somewhere else.
 use std::io::{Read, Seek};
 use std::{collections, fmt, io, mem, ops, path, slice, vec};
 
-/// Disables all access to the committed region of pages. An attempt to read from, write to, or execute the committed
-/// region results in an access violation.
+use crate::map::{Cursor, MappedFile};
+use crate::structs::*;
+
+/// Disables all access to the committed region of pages. An attempt to read
+/// from, write to, or execute the committed region results in an access
+/// violation.
 pub const PAGE_NOACCESS: u32 = 1;
-/// Enables read-only access to the committed region of pages. An attempt to write to the committed region results in
-/// an access violation. If Data Execution Prevention is enabled, an attempt to execute code in the committed region
-/// results in an access violation.
+/// Enables read-only access to the committed region of pages. An attempt to
+/// write to the committed region results in an access violation. If Data
+/// Execution Prevention is enabled, an attempt to execute code in the committed
+/// region results in an access violation.
 pub const PAGE_READONLY: u32 = 2;
-/// Enables read-only or read/write access to the committed region of pages. If Data Execution Prevention is enabled,
-/// attempting to execute code in the committed region results in an access violation.
+/// Enables read-only or read/write access to the committed region of pages. If
+/// Data Execution Prevention is enabled, attempting to execute code in the
+/// committed region results in an access violation.
 pub const PAGE_READWRITE: u32 = 4;
-/// Enables read-only or copy-on-write access to a mapped view of a file mapping object. An attempt to write to a
-/// committed copy-on-write page results in a private copy of the page being made for the process. The private page is
-/// marked as PAGE_READWRITE, and the change is written to the new page. If Data Execution Prevention is enabled,
-/// attempting to execute code in the committed region results in an access violation.
+/// Enables read-only or copy-on-write access to a mapped view of a file mapping
+/// object. An attempt to write to a committed copy-on-write page results in a
+/// private copy of the page being made for the process. The private page is
+/// marked as PAGE_READWRITE, and the change is written to the new page. If Data
+/// Execution Prevention is enabled, attempting to execute code in the committed
+/// region results in an access violation.
 pub const PAGE_WRITECOPY: u32 = 8;
-/// Enables execute access to the committed region of pages. An attempt to write to the committed region results in an
-/// access violation.
+/// Enables execute access to the committed region of pages. An attempt to write
+/// to the committed region results in an access violation.
 pub const PAGE_EXECUTE: u32 = 16;
-/// Enables execute or read-only access to the committed region of pages. An attempt to write to the committed region
-/// results in an access violation.
+/// Enables execute or read-only access to the committed region of pages. An
+/// attempt to write to the committed region results in an access violation.
 pub const PAGE_EXECUTE_READ: u32 = 32;
-/// Enables execute, read-only, or read/write access to the committed region of pages.
+/// Enables execute, read-only, or read/write access to the committed region of
+/// pages.
 pub const PAGE_EXECUTE_READWRITE: u32 = 64;
-/// Enables execute, read-only, or copy-on-write access to a mapped view of a file mapping object. An attempt to write
-/// to a committed copy-on-write page results in a private copy of the page being made for the process. The private
-/// page is marked as PAGE_EXECUTE_READWRITE, and the change is written to the new page.
+/// Enables execute, read-only, or copy-on-write access to a mapped view of a
+/// file mapping object. An attempt to write to a committed copy-on-write page
+/// results in a private copy of the page being made for the process. The
+/// private page is marked as PAGE_EXECUTE_READWRITE, and the change is written
+/// to the new page.
 pub const PAGE_EXECUTE_WRITECOPY: u32 = 128;
-/// Pages in the region become guard pages. Any attempt to access a guard page causes the system to raise a
-/// STATUS_GUARD_PAGE_VIOLATION exception and turn off the guard page status. Guard pages thus act as a one-time access
-/// alarm.
+/// Pages in the region become guard pages. Any attempt to access a guard page
+/// causes the system to raise a STATUS_GUARD_PAGE_VIOLATION exception and turn
+/// off the guard page status. Guard pages thus act as a one-time access alarm.
 pub const PAGE_GUARD: u32 = 0x1_00;
-/// Sets all pages to be non-cachable. Applications should not use this attribute except when explicitly required for
-/// a device. Using the interlocked functions with memory that is mapped with SEC_NOCACHE can result in an
-/// EXCEPTION_ILLEGAL_INSTRUCTION exception.
+/// Sets all pages to be non-cachable. Applications should not use this
+/// attribute except when explicitly required for a device. Using the
+/// interlocked functions with memory that is mapped with SEC_NOCACHE can result
+/// in an EXCEPTION_ILLEGAL_INSTRUCTION exception.
 pub const PAGE_NOCACHE: u32 = 0x2_00;
-/// Sets all pages to be write-combined. Applications should not use this attribute except when explicitly required for
-/// a device. Using the interlocked functions with memory that is mapped as write-combined can result in an
-/// EXCEPTION_ILLEGAL_INSTRUCTION exception.
+/// Sets all pages to be write-combined. Applications should not use this
+/// attribute except when explicitly required for a device. Using the
+/// interlocked functions with memory that is mapped as write-combined can
+/// result in an EXCEPTION_ILLEGAL_INSTRUCTION exception.
 pub const PAGE_WRITECOMBINE: u32 = 0x4_00;
 
-/// The memory rights constants on Windows make it annoying to know if the page is readable / writable / executable,
-/// so we have to create our own masks.
+/// The memory rights constants on Windows make it annoying to know if the page
+/// is readable / writable / executable, so we have to create our own masks.
 /// A page is readable if it is protected with any of the below rights.
 const READABLE: u32 = PAGE_READONLY
     | PAGE_READWRITE
@@ -71,7 +82,7 @@ pub struct Module<'a> {
     pub range: ops::Range<u64>,
     /// PE checksum of the module.
     pub checksum: u32,
-    ///
+    /// Timestamp.
     pub time_date_stamp: u32,
     /// The module path on the file system.
     pub path: path::PathBuf,
@@ -295,10 +306,10 @@ impl<'a> MemBlock<'a> {
 
     /// Get a slice over the [`MemBlock`]'s data from its absolute address.
     ///
-    /// If the dump had a memory block of size 4 bytes starting at address 0xdead
-    /// then calling `data_from(0xdead+1)` returns a slice over the last 3 bytes
-    /// of the memory block. This is useful when you don't need to reason about
-    /// offsets.
+    /// If the dump had a memory block of size 4 bytes starting at address
+    /// 0xdead then calling `data_from(0xdead+1)` returns a slice over the
+    /// last 3 bytes of the memory block. This is useful when you don't need
+    /// to reason about offsets.
     pub fn data_from(&self, addr: u64) -> Option<&[u8]> {
         // If the memory block is empty return `None`. Also bail if this
         // `MemBlock` doesn't contain the address.
@@ -391,7 +402,8 @@ pub struct UserDumpParser<'a> {
 }
 
 impl<'a> UserDumpParser<'a> {
-    /// Create an instance from a filepath. This memory maps the file and parses it.
+    /// Create an instance from a filepath. This memory maps the file and parses
+    /// it.
     pub fn new<S: AsRef<path::Path>>(path: S) -> io::Result<UserDumpParser<'a>> {
         let mapped_file = MappedFile::new(path)?;
         Self::with_file(mapped_file)
@@ -577,13 +589,10 @@ impl<'a> UserDumpParser<'a> {
                 ))?;
 
             // Read the slice of bytes and associate it to the MemBlock instance.
-            entry.data = Self::slice_from_location_descriptor(
-                cursor,
-                LocationDescriptor32 {
-                    rva: data_offset.try_into().unwrap(),
-                    data_size: descriptor.data_size.try_into().unwrap(),
-                },
-            )?;
+            entry.data = Self::slice_from_location_descriptor(cursor, LocationDescriptor32 {
+                rva: data_offset.try_into().unwrap(),
+                data_size: descriptor.data_size.try_into().unwrap(),
+            })?;
 
             // Bump the offset by the size of this region to find where the next
             // data slice is at.
@@ -758,9 +767,7 @@ impl<'a> UserDumpParser<'a> {
         }
 
         // Move to the stream directory.
-        cursor.seek(io::SeekFrom::Start(
-            hdr.stream_directory_rva.try_into().unwrap(),
-        ))?;
+        cursor.seek(io::SeekFrom::Start(hdr.stream_directory_rva.into()))?;
 
         // Create a map to store where directories are stored at.
         let mut directory_locations = collections::HashMap::new();
@@ -813,7 +820,7 @@ impl<'a> UserDumpParser<'a> {
                 if required {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
-                        format!("The directory {directory_type} is required but not present")
+                        format!("The directory {directory_type} is required but not present"),
                     ));
                 }
 
@@ -905,8 +912,9 @@ fn utf16_string_from_slice(slice: &[u8]) -> io::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::UserDumpParser;
     use core::fmt::Debug;
+
+    use crate::UserDumpParser;
 
     #[test]
     fn assert_traits() {
