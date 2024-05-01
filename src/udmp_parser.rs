@@ -142,15 +142,15 @@ impl<'a> Module<'a> {
 /// A [`ThreadContext`] stores the thread contexts for the architecture that are
 /// supported by the library.
 #[derive(Debug)]
-pub enum ThreadContext<'a> {
+pub enum ThreadContext {
     /// The Intel x86 thread context.
-    X86(&'a ThreadContextX86),
+    X86(Box<ThreadContextX86>),
     /// The Intel x64 thread context.
-    X64(&'a ThreadContextX64),
+    X64(Box<ThreadContextX64>),
 }
 
 /// Display the [`ThreadContext`] like WinDbg would.
-impl<'a> fmt::Display for ThreadContext<'a> {
+impl fmt::Display for ThreadContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::X86(ctx) => ctx.fmt(f),
@@ -161,7 +161,7 @@ impl<'a> fmt::Display for ThreadContext<'a> {
 
 /// A thread that was running when the dump was generated.
 #[derive(Debug)]
-pub struct Thread<'a> {
+pub struct Thread {
     /// The thread ID.
     pub id: u32,
     /// The suspend count counter cf [Freezing and Suspending Threads](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/controlling-processes-and-threads).
@@ -173,12 +173,12 @@ pub struct Thread<'a> {
     /// The thread environment block address.
     pub teb: u64,
     /// The thread context.
-    context: ThreadContext<'a>,
+    context: ThreadContext,
 }
 
-impl<'a> Thread<'a> {
+impl Thread {
     /// Build a new [`Thread`] instance.
-    fn new(entry: ThreadEntry, context: ThreadContext<'a>) -> Self {
+    fn new(entry: ThreadEntry, context: ThreadContext) -> Self {
         Self {
             id: entry.thread_id,
             suspend_count: entry.suspend_count,
@@ -368,7 +368,7 @@ impl<'a> From<MemoryInfo> for MemBlock<'a> {
 pub type MemBlocks<'a> = collections::BTreeMap<u64, MemBlock<'a>>;
 
 /// Map a thread id to a [`Thread`].
-pub type Threads<'a> = collections::BTreeMap<u32, Thread<'a>>;
+pub type Threads = collections::BTreeMap<u32, Thread>;
 
 /// Map a base address to a [`Module`].
 pub type Modules<'a> = collections::BTreeMap<u64, Module<'a>>;
@@ -395,7 +395,7 @@ pub struct UserDumpParser<'a> {
     /// A map of [`Module`].
     modules: Modules<'a>,
     /// A map of [`Thread`].
-    threads: Threads<'a>,
+    threads: Threads,
     /// This is where we hold the backing data. Either it is a memory mapped
     /// file, or a slice that needs to live as long as this.
     _mapped_file: MappedFile<'a>,
@@ -604,7 +604,7 @@ impl<'a> UserDumpParser<'a> {
     }
 
     /// Parse the tread list and extract their contexts.
-    fn parse_thread_list(cursor: &mut Cursor, arch: Arch) -> io::Result<Threads<'a>> {
+    fn parse_thread_list(cursor: &mut Cursor, arch: Arch) -> io::Result<Threads> {
         // Create the map of threads.
         let mut threads = Threads::new();
 
@@ -638,8 +638,8 @@ impl<'a> UserDumpParser<'a> {
                     }
 
                     // Build a reference to a ThreadContextX86 at this address.
-                    let ptr = thread_context_slice.as_ptr() as *const ThreadContextX86;
-                    ThreadContext::X86(unsafe { &*ptr })
+                    let ptr = thread_context_slice.as_ptr() as *const _;
+                    ThreadContext::X86(unsafe { std::ptr::read_unaligned(ptr) })
                 }
                 // Read a ThreadContextX86 context if the slice is big enough.
                 Arch::X64 => {
@@ -654,8 +654,8 @@ impl<'a> UserDumpParser<'a> {
                     }
 
                     // Build a reference to a ThreadContextX64 at this address.
-                    let ptr = thread_context_slice.as_ptr() as *const ThreadContextX64;
-                    ThreadContext::X64(unsafe { &*ptr })
+                    let ptr = thread_context_slice.as_ptr() as *const _;
+                    ThreadContext::X64(unsafe { std::ptr::read_unaligned(ptr) })
                 }
             };
 
