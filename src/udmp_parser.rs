@@ -638,7 +638,7 @@ impl<'a> UserDumpParser<'a> {
                     }
 
                     // Build a reference to a ThreadContextX86 at this address.
-                    let ptr = thread_context_slice.as_ptr() as *const _;
+                    let ptr = thread_context_slice.as_ptr() as *const ThreadContextX86;
                     ThreadContext::X86(Box::new(unsafe { std::ptr::read_unaligned(ptr) }))
                 }
                 // Read a ThreadContextX86 context if the slice is big enough.
@@ -654,7 +654,7 @@ impl<'a> UserDumpParser<'a> {
                     }
 
                     // Build a reference to a ThreadContextX64 at this address.
-                    let ptr = thread_context_slice.as_ptr() as *const _;
+                    let ptr = thread_context_slice.as_ptr() as *const ThreadContextX64;
                     ThreadContext::X64(Box::new(unsafe { std::ptr::read_unaligned(ptr) }))
                 }
             };
