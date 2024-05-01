@@ -639,7 +639,7 @@ impl<'a> UserDumpParser<'a> {
 
                     // Build a reference to a ThreadContextX86 at this address.
                     let ptr = thread_context_slice.as_ptr() as *const _;
-                    ThreadContext::X86(unsafe { std::ptr::read_unaligned(ptr) })
+                    ThreadContext::X86(Box::new(unsafe { std::ptr::read_unaligned(ptr) }))
                 }
                 // Read a ThreadContextX86 context if the slice is big enough.
                 Arch::X64 => {
@@ -655,7 +655,7 @@ impl<'a> UserDumpParser<'a> {
 
                     // Build a reference to a ThreadContextX64 at this address.
                     let ptr = thread_context_slice.as_ptr() as *const _;
-                    ThreadContext::X64(unsafe { std::ptr::read_unaligned(ptr) })
+                    ThreadContext::X64(Box::new(unsafe { std::ptr::read_unaligned(ptr) }))
                 }
             };
 
