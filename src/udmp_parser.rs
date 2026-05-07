@@ -427,12 +427,12 @@ impl<'a> UserDumpParser<'a> {
     }
 
     /// Get a reference to the base address -> [`Module`] map.
-    pub fn modules(&self) -> &Modules {
+    pub fn modules(&self) -> &Modules<'_> {
         &self.modules
     }
 
     /// Find a [`Module`] that includes `address` in its range.
-    pub fn get_module(&self, address: u64) -> Option<&Module> {
+    pub fn get_module(&self, address: u64) -> Option<&Module<'_>> {
         self.modules
             .values()
             .find(|module| module.range.contains(&address))
@@ -449,12 +449,12 @@ impl<'a> UserDumpParser<'a> {
     }
 
     /// Get a reference to the base address -> [`MemBlock`] map.
-    pub fn mem_blocks(&self) -> &MemBlocks {
+    pub fn mem_blocks(&self) -> &MemBlocks<'_> {
         &self.mem_blocks
     }
 
     /// Find a [`MemBlock`] that includes `address` in its range.
-    pub fn get_mem_block(&self, address: u64) -> Option<&MemBlock> {
+    pub fn get_mem_block(&self, address: u64) -> Option<&MemBlock<'_>> {
         self.mem_blocks
             .values()
             .find(|block| block.range.contains(&address))
@@ -889,7 +889,7 @@ fn read_struct<T>(cursor: &mut Cursor) -> io::Result<T> {
 fn utf16_string_from_slice(slice: &[u8]) -> io::Result<String> {
     // Every code point is 2 bytes, so we expect the length to be a multiple of
     // 2.
-    if (slice.len() % 2) != 0 {
+    if !slice.len().is_multiple_of(2) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "Slice length needs to be % 2",

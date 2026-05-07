@@ -175,7 +175,7 @@ pub struct FixedFileInfo {
 }
 
 #[derive(Default, Debug)]
-#[repr(packed(1))]
+#[repr(C, packed(1))]
 pub struct ModuleEntry {
     pub base_of_image: u64,
     pub size_of_image: u32,
