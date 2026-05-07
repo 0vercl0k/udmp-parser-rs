@@ -73,6 +73,7 @@ pub struct SystemInfoStream {
 pub struct ExceptionRecord {
     pub exception_code: u32,
     pub exception_flags: u32,
+    #[expect(clippy::struct_field_names)]
     pub exception_record: u64,
     pub exception_address: u64,
     pub number_parameters: u32,

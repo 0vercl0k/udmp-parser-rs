@@ -16,8 +16,11 @@ keywords = ["windows", "minidump", "crashdump"]
 license = "MIT"
 repository = "https://github.com/0vercl0k/udmp-parser-rs"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lints.clippy]
+pedantic = "warn"
+
 [[example]]
 name = "parser"
+
 [profile.release]
 panic = "abort"

@@ -3,7 +3,7 @@
 [![Documentation](https://docs.rs/udmp-parser/badge.svg)](https://docs.rs/udmp-parser/)
 ![Build status](https://github.com/0vercl0k/udmp-parser-rs/workflows/Builds/badge.svg)
 
-This is a cross-platform crate that parses Windows user [minidump](https://docs.microsoft.com/en-us/windows/win32/debug/minidump-files) dumps that you can generate via WinDbg or via right-click **Create memory dump file** in the Windows task manager.
+This is a cross-platform crate that parses Windows user [minidump](https://docs.microsoft.com/en-us/windows/win32/debug/minidump-files) dumps that you can generate via `WinDbg` or via right-click **Create memory dump file** in the Windows task manager.
 
 ![parser](https://github.com/0vercl0k/udmp-parser-rs/raw/main/pics/parser.gif)
 

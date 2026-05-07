@@ -1,5 +1,6 @@
 // Axel '0vercl0k' Souchet - July 29 2023
 #![doc = include_str!("../README.md")]
+#![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
 mod udmp_parser;
 pub use udmp_parser::{
     PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_GUARD,
