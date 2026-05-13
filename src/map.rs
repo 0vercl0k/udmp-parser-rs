@@ -1,7 +1,7 @@
 // Axel '0vercl0k' Souchet - July 18 2023
 //! This module implements the logic that allows to memory map a file on both
 //! Unix and Windows (cf [`memory_map_file`] / [`unmap_memory_mapped_file`]).
-use std::{convert, fs, io, path, ptr, slice};
+use std::{convert, fs, io, path};
 
 /// A cursor over a slice of bytes. This is used to seek / read from the
 /// mapping.
@@ -83,8 +83,8 @@ cfg_select! {
         mod internal {
             use std::os::windows::prelude::AsRawHandle;
             use std::os::windows::raw::HANDLE;
-
-            use super::{fs, MappedFile, io, ptr, slice};
+            use std::{fs, io, ptr, slice};
+            use super::{MappedFile};
 
             const PAGE_READONLY: DWORD = 2;
             const FILE_MAP_READ: DWORD = 4;
@@ -211,8 +211,8 @@ cfg_select! {
         /// Module that implements memory mapping on Unix using the mmap syscall.
         mod internal {
             use std::os::fd::AsRawFd;
-
-            use super::*;
+            use std::{fs, io, ptr, slice};
+            use super::MappedFile;
 
             const PROT_READ: i32 = 1;
             const MAP_SHARED: i32 = 1;
@@ -248,9 +248,7 @@ cfg_select! {
                 }
 
                 // Make sure the size is not bigger than what [`slice::from_raw_parts`] wants.
-                if size > isize::MAX.try_into().unwrap() {
-                    panic!("slice is too large");
-                }
+                assert!(size <= isize::MAX.try_into().unwrap(), "slice is too large");
 
                 // Create the slice over the mapping.
                 // SAFETY: This is safe because:
