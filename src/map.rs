@@ -75,7 +75,6 @@ impl Drop for MappedFile<'_> {
     }
 }
 
-
 cfg_select! {
     windows => {
         #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
