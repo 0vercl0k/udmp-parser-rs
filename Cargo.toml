@@ -1,7 +1,7 @@
 [package]
 name = "udmp-parser"
-version = "0.2.0"
-edition = "2021"
+version = "0.3.0"
+edition = "2024"
 authors = ["Axel '0vercl0k' Souchet"]
 categories = ["parser-implementations"]
 description = "A Rust crate for parsing Windows user minidumps"
@@ -15,10 +15,12 @@ include = [
 keywords = ["windows", "minidump", "crashdump"]
 license = "MIT"
 repository = "https://github.com/0vercl0k/udmp-parser-rs"
-rust-version = "1.65"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lints.clippy]
+pedantic = "warn"
+
 [[example]]
 name = "parser"
+
 [profile.release]
 panic = "abort"

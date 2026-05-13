@@ -3,10 +3,17 @@
 //! [`UserDumpParser`] can memory map a file by default but users can also build
 //! an instance from a slice they got from somewhere else.
 use std::io::{Read, Seek};
-use std::{collections, fmt, io, mem, ops, path, slice, vec};
+use std::{collections, fmt, io, mem, ops, path, ptr, slice, vec};
 
 use crate::map::{Cursor, MappedFile};
-use crate::structs::*;
+use crate::structs::{
+    ARCH_X64, ARCH_X86, Directory, EXPECTED_DUMP_SIGNATURE, ExceptionStream, FixedFileInfo, Header,
+    LocationDescriptor32, Memory64ListStream, MemoryDescriptor64, MemoryInfo, MemoryInfoListStream,
+    ModuleEntry, ModuleList, STREAM_TYPE_EXCEPTION, STREAM_TYPE_MEMORY_INFO_LIST,
+    STREAM_TYPE_MEMORY64_LIST, STREAM_TYPE_MODULE_LIST, STREAM_TYPE_SYSTEM_INFO,
+    STREAM_TYPE_THREAD_LIST, STREAM_TYPE_UNUSED, SystemInfoStream, ThreadContextX64,
+    ThreadContextX86, ThreadEntry, ThreadList, VALID_DUMP_FLAGS,
+};
 
 /// Disables all access to the committed region of pages. An attempt to read
 /// from, write to, or execute the committed region results in an access
@@ -24,9 +31,9 @@ pub const PAGE_READWRITE: u32 = 4;
 /// Enables read-only or copy-on-write access to a mapped view of a file mapping
 /// object. An attempt to write to a committed copy-on-write page results in a
 /// private copy of the page being made for the process. The private page is
-/// marked as PAGE_READWRITE, and the change is written to the new page. If Data
-/// Execution Prevention is enabled, attempting to execute code in the committed
-/// region results in an access violation.
+/// marked as `PAGE_READWRITE`, and the change is written to the new page. If
+/// Data Execution Prevention is enabled, attempting to execute code in the
+/// committed region results in an access violation.
 pub const PAGE_WRITECOPY: u32 = 8;
 /// Enables execute access to the committed region of pages. An attempt to write
 /// to the committed region results in an access violation.
@@ -40,22 +47,23 @@ pub const PAGE_EXECUTE_READWRITE: u32 = 64;
 /// Enables execute, read-only, or copy-on-write access to a mapped view of a
 /// file mapping object. An attempt to write to a committed copy-on-write page
 /// results in a private copy of the page being made for the process. The
-/// private page is marked as PAGE_EXECUTE_READWRITE, and the change is written
-/// to the new page.
+/// private page is marked as `PAGE_EXECUTE_READWRITE`, and the change is
+/// written to the new page.
 pub const PAGE_EXECUTE_WRITECOPY: u32 = 128;
 /// Pages in the region become guard pages. Any attempt to access a guard page
-/// causes the system to raise a STATUS_GUARD_PAGE_VIOLATION exception and turn
-/// off the guard page status. Guard pages thus act as a one-time access alarm.
+/// causes the system to raise a `STATUS_GUARD_PAGE_VIOLATION` exception and
+/// turn off the guard page status. Guard pages thus act as a one-time access
+/// alarm.
 pub const PAGE_GUARD: u32 = 0x1_00;
 /// Sets all pages to be non-cachable. Applications should not use this
 /// attribute except when explicitly required for a device. Using the
-/// interlocked functions with memory that is mapped with SEC_NOCACHE can result
-/// in an EXCEPTION_ILLEGAL_INSTRUCTION exception.
+/// interlocked functions with memory that is mapped with `SEC_NOCACHE` can
+/// result in an `EXCEPTION_ILLEGAL_INSTRUCTION` exception.
 pub const PAGE_NOCACHE: u32 = 0x2_00;
 /// Sets all pages to be write-combined. Applications should not use this
 /// attribute except when explicitly required for a device. Using the
 /// interlocked functions with memory that is mapped as write-combined can
-/// result in an EXCEPTION_ILLEGAL_INSTRUCTION exception.
+/// result in an `EXCEPTION_ILLEGAL_INSTRUCTION` exception.
 pub const PAGE_WRITECOMBINE: u32 = 0x4_00;
 
 /// The memory rights constants on Windows make it annoying to know if the page
@@ -94,17 +102,15 @@ pub struct Module<'a> {
 impl<'a> Module<'a> {
     /// Build a new [`Module`] instance.
     fn new(
-        entry: ModuleEntry,
+        entry: &ModuleEntry,
         module_name: String,
         cv_record: &'a [u8],
         misc_record: &'a [u8],
     ) -> Self {
         let start = entry.base_of_image;
-        let end = entry.base_of_image + entry.size_of_image as u64;
+        let end = entry.base_of_image + u64::from(entry.size_of_image);
         let range = ops::Range { start, end };
-        if range.is_empty() {
-            panic!("range is malformed");
-        }
+        assert!(!range.is_empty(), "range is malformed");
 
         Self {
             range,
@@ -119,21 +125,25 @@ impl<'a> Module<'a> {
 
     /// Get the file name of the module. This returns [`None`] if the file name
     /// can't be converted to a Rust string.
+    #[must_use]
     pub fn file_name(&self) -> Option<&str> {
         self.path.file_name().unwrap().to_str()
     }
 
     /// Get the address of where the module was loaded at.
+    #[must_use]
     pub fn start_addr(&self) -> u64 {
         self.range.start
     }
 
     /// Get the address of where the last byte of the module was loaded at.
+    #[must_use]
     pub fn end_addr(&self) -> u64 {
         self.range.end - 1
     }
 
     /// Get the length of the range of memory the module was loaded at.
+    #[must_use]
     pub fn len(&self) -> u64 {
         self.range.end - self.range.start
     }
@@ -149,6 +159,7 @@ pub enum ThreadContext {
     X64(Box<ThreadContextX64>),
 }
 
+#[expect(clippy::doc_markdown)]
 /// Display the [`ThreadContext`] like WinDbg would.
 impl fmt::Display for ThreadContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -178,7 +189,7 @@ pub struct Thread {
 
 impl Thread {
     /// Build a new [`Thread`] instance.
-    fn new(entry: ThreadEntry, context: ThreadContext) -> Self {
+    fn new(entry: &ThreadEntry, context: ThreadContext) -> Self {
         Self {
             id: entry.thread_id,
             suspend_count: entry.suspend_count,
@@ -190,6 +201,7 @@ impl Thread {
     }
 
     /// Get a reference to the [`ThreadContext`].
+    #[must_use]
     pub fn context(&self) -> &ThreadContext {
         &self.context
     }
@@ -217,23 +229,27 @@ pub struct MemBlock<'a> {
     pub data: &'a [u8],
 }
 
-impl<'a> MemBlock<'a> {
+impl MemBlock<'_> {
     /// Is the memory region readable?
+    #[must_use]
     pub fn is_readable(&self) -> bool {
         (self.protect & READABLE) != 0
     }
 
     /// Is the memory region writable?
+    #[must_use]
     pub fn is_writable(&self) -> bool {
         (self.protect & WRITABLE) != 0
     }
 
     /// Is the memory region executable?
+    #[must_use]
     pub fn is_executable(&self) -> bool {
         (self.protect & EXECUTABLE) != 0
     }
 
     /// Stringify the memory region state.
+    #[must_use]
     pub fn state_as_str(&self) -> &str {
         match self.state {
             0x10_00 => "MEM_COMMIT",
@@ -244,6 +260,7 @@ impl<'a> MemBlock<'a> {
     }
 
     /// Stringify the memory region type.
+    #[must_use]
     pub fn type_as_str(&self) -> &str {
         if self.state == 0x1_00_00 {
             return "";
@@ -258,9 +275,10 @@ impl<'a> MemBlock<'a> {
     }
 
     /// Stringify the memory region protection.
+    #[must_use]
     pub fn protect_as_str(&self) -> String {
         if self.protect == 0 {
-            return "".into();
+            return String::new();
         }
 
         // Those bits are the only ones that can be combined with the page
@@ -272,11 +290,11 @@ impl<'a> MemBlock<'a> {
         ]);
 
         // This is where the parts of the stringified mask are stored in.
-        let mut parts = vec::Vec::new();
+        let mut parts = Vec::new();
         let mut protect = self.protect;
 
         // Walk through the bits to check if turned on.
-        for (mask, str) in bits.iter() {
+        for (mask, str) in bits {
             // If the current bit isn't set, skip.
             if (protect & mask) == 0 {
                 continue;
@@ -285,7 +303,7 @@ impl<'a> MemBlock<'a> {
             // If it is set, strip it off from `protect` and push its
             // stringified value in the vector.
             protect &= !mask;
-            parts.push(*str);
+            parts.push(str);
         }
 
         // Now we can handle the 'normal' page properties.
@@ -310,6 +328,7 @@ impl<'a> MemBlock<'a> {
     /// 0xdead then calling `data_from(0xdead+1)` returns a slice over the
     /// last 3 bytes of the memory block. This is useful when you don't need
     /// to reason about offsets.
+    #[must_use]
     pub fn data_from(&self, addr: u64) -> Option<&[u8]> {
         // If the memory block is empty return `None`. Also bail if this
         // `MemBlock` doesn't contain the address.
@@ -325,6 +344,7 @@ impl<'a> MemBlock<'a> {
     }
 
     /// Get the address of where this [`MemBlock`] was at in memory.
+    #[must_use]
     pub fn start_addr(&self) -> u64 {
         self.range.start
     }
@@ -333,6 +353,7 @@ impl<'a> MemBlock<'a> {
     ///
     /// Note that the underlying range is not inclusive, so this address is
     /// pointing right after the last byte's address.
+    #[must_use]
     pub fn end_addr(&self) -> u64 {
         self.range.end
     }
@@ -344,13 +365,14 @@ impl<'a> MemBlock<'a> {
     ///
     /// An example is a memory region mapped as `PAGE_NOACCESS`; it exists in
     /// the address space but has no content.
+    #[must_use]
     pub fn len(&self) -> u64 {
         self.range.end - self.range.start
     }
 }
 
 /// Convert a [`MemoryInfo`] into a [`MemBlock`].
-impl<'a> From<MemoryInfo> for MemBlock<'a> {
+impl From<MemoryInfo> for MemBlock<'_> {
     fn from(value: MemoryInfo) -> Self {
         Self {
             range: value.base_address..(value.base_address + value.region_size),
@@ -413,48 +435,56 @@ impl<'a> UserDumpParser<'a> {
     pub fn with_slice(
         slice: &'a impl std::ops::Deref<Target = [u8]>,
     ) -> io::Result<UserDumpParser<'a>> {
-        Self::with_file(MappedFile::from(slice.deref()))
+        Self::with_file(MappedFile::from(&**slice))
     }
 
     /// Is the architeture X64?
+    #[must_use]
     pub fn is_arch_x64(&self) -> bool {
         matches!(self.arch, Arch::X64)
     }
 
     /// Is the architecture X86?
+    #[must_use]
     pub fn is_arch_x86(&self) -> bool {
         matches!(self.arch, Arch::X86)
     }
 
     /// Get a reference to the base address -> [`Module`] map.
-    pub fn modules(&self) -> &Modules {
+    #[must_use]
+    pub fn modules(&self) -> &Modules<'_> {
         &self.modules
     }
 
     /// Find a [`Module`] that includes `address` in its range.
-    pub fn get_module(&self, address: u64) -> Option<&Module> {
+    #[must_use]
+    pub fn get_module(&self, address: u64) -> Option<&Module<'_>> {
         self.modules
             .values()
             .find(|module| module.range.contains(&address))
     }
 
     /// Get a reference to the TID -> [`Thread`] map.
+    #[must_use]
     pub fn threads(&self) -> &Threads {
         &self.threads
     }
 
     /// Find a [`Thread`] with a specific TID.
+    #[must_use]
     pub fn get_thread(&self, id: u32) -> Option<&Thread> {
         self.threads.values().find(|thread| thread.id == id)
     }
 
     /// Get a reference to the base address -> [`MemBlock`] map.
-    pub fn mem_blocks(&self) -> &MemBlocks {
+    #[must_use]
+    pub fn mem_blocks(&self) -> &MemBlocks<'_> {
         &self.mem_blocks
     }
 
     /// Find a [`MemBlock`] that includes `address` in its range.
-    pub fn get_mem_block(&self, address: u64) -> Option<&MemBlock> {
+    #[must_use]
+    pub fn get_mem_block(&self, address: u64) -> Option<&MemBlock<'_>> {
         self.mem_blocks
             .values()
             .find(|block| block.range.contains(&address))
@@ -484,9 +514,7 @@ impl<'a> UserDumpParser<'a> {
         }
 
         // Make sure we hold `from_raw_parts`'s contract.
-        if len > isize::MAX.try_into().unwrap() {
-            panic!("len > isize::MAX");
-        }
+        assert!(len <= isize::MAX.try_into().unwrap(), "len > isize::MAX");
 
         // Build the slice!
         Ok(unsafe { slice::from_raw_parts(tail.as_ptr(), len) })
@@ -524,7 +552,7 @@ impl<'a> UserDumpParser<'a> {
         let mem_info_list = read_struct::<MemoryInfoListStream>(cursor)?;
 
         // Ensure that each entry is at least as big as what we expected.
-        let mem_info_size = mem::size_of::<MemoryInfo>() as u32;
+        let mem_info_size = u32::try_from(size_of::<MemoryInfo>()).unwrap();
         let size_of_entry = mem_info_list.size_of_entry;
         if size_of_entry < mem_info_size {
             return Err(io::Error::new(
@@ -550,7 +578,7 @@ impl<'a> UserDumpParser<'a> {
             if previous_val.is_some() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("Address {} already in the mem map", key),
+                    format!("Address {key} already in the mem map"),
                 ));
             }
 
@@ -562,7 +590,7 @@ impl<'a> UserDumpParser<'a> {
         Ok(mem_blocks)
     }
 
-    /// Parse the memory64 list stream to associate data to the MemBlock we
+    /// Parse the memory64 list stream to associate data to the `MemBlock` we
     /// parsed from the memory info list stream. That's why we parse the memory
     /// info list stream first.
     fn parse_mem64_list(cursor: &mut Cursor, mem_blocks: &mut MemBlocks<'a>) -> io::Result<()> {
@@ -627,7 +655,7 @@ impl<'a> UserDumpParser<'a> {
             let thread_context = match arch {
                 // Read a ThreadContextX86 context if the slice is big enough.
                 Arch::X86 => {
-                    if thread_context_slice.len() < mem::size_of::<ThreadContextX86>() {
+                    if thread_context_slice.len() < size_of::<ThreadContextX86>() {
                         return Err(io::Error::new(
                             io::ErrorKind::InvalidData,
                             format!(
@@ -638,12 +666,13 @@ impl<'a> UserDumpParser<'a> {
                     }
 
                     // Build a reference to a ThreadContextX86 at this address.
-                    let ptr = thread_context_slice.as_ptr() as *const ThreadContextX86;
-                    ThreadContext::X86(Box::new(unsafe { std::ptr::read_unaligned(ptr) }))
+                    #[expect(clippy::cast_ptr_alignment)]
+                    let ptr = thread_context_slice.as_ptr().cast::<ThreadContextX86>();
+                    ThreadContext::X86(Box::new(unsafe { ptr::read_unaligned(ptr) }))
                 }
                 // Read a ThreadContextX86 context if the slice is big enough.
                 Arch::X64 => {
-                    if thread_context_slice.len() < mem::size_of::<ThreadContextX64>() {
+                    if thread_context_slice.len() < size_of::<ThreadContextX64>() {
                         return Err(io::Error::new(
                             io::ErrorKind::InvalidData,
                             format!(
@@ -654,8 +683,9 @@ impl<'a> UserDumpParser<'a> {
                     }
 
                     // Build a reference to a ThreadContextX64 at this address.
-                    let ptr = thread_context_slice.as_ptr() as *const ThreadContextX64;
-                    ThreadContext::X64(Box::new(unsafe { std::ptr::read_unaligned(ptr) }))
+                    #[expect(clippy::cast_ptr_alignment)]
+                    let ptr = thread_context_slice.as_ptr().cast::<ThreadContextX64>();
+                    ThreadContext::X64(Box::new(unsafe { ptr::read_unaligned(ptr) }))
                 }
             };
 
@@ -663,7 +693,7 @@ impl<'a> UserDumpParser<'a> {
             let key = thread.thread_id;
 
             // Create a Thread from its context and the descriptor.
-            let thread = Thread::new(thread, thread_context);
+            let thread = Thread::new(&thread, thread_context);
 
             // If we've already encountered a thread with this id, then let's
             // bail.
@@ -671,7 +701,7 @@ impl<'a> UserDumpParser<'a> {
             if previous_val.is_some() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("Thread {} already in the map", key),
+                    format!("Thread {key} already in the map"),
                 ));
             }
 
@@ -723,7 +753,7 @@ impl<'a> UserDumpParser<'a> {
             })?;
 
             // Create a module from its descriptor / name / records.
-            let module = Module::new(module, module_name, cv_record, misc_record);
+            let module = Module::new(&module, module_name, cv_record, misc_record);
 
             // If there's already a module at this address, something is wrong
             // so we bail.
@@ -743,9 +773,9 @@ impl<'a> UserDumpParser<'a> {
         Ok(modules)
     }
 
-    pub fn with_file(_mapped_file: MappedFile<'a>) -> io::Result<UserDumpParser<'a>> {
+    pub fn with_file(mapped_file: MappedFile<'a>) -> io::Result<UserDumpParser<'a>> {
         // Grab a cursor to start parsing the bits.
-        let mut cursor = _mapped_file.cursor();
+        let mut cursor = mapped_file.cursor();
 
         // Read the header.
         let hdr = read_struct::<Header>(&mut cursor)?;
@@ -835,15 +865,15 @@ impl<'a> UserDumpParser<'a> {
                 STREAM_TYPE_SYSTEM_INFO => arch = Some(Self::parse_system_info(&mut cursor)?),
                 STREAM_TYPE_EXCEPTION => foreground_tid = Some(Self::parse_exception(&mut cursor)?),
                 STREAM_TYPE_MEMORY_INFO_LIST => {
-                    mem_blocks = Self::parse_mem_info_list(&mut cursor)?
+                    mem_blocks = Self::parse_mem_info_list(&mut cursor)?;
                 }
                 STREAM_TYPE_MEMORY64_LIST => Self::parse_mem64_list(&mut cursor, &mut mem_blocks)?,
                 STREAM_TYPE_THREAD_LIST => {
-                    threads = Self::parse_thread_list(&mut cursor, arch.unwrap())?
+                    threads = Self::parse_thread_list(&mut cursor, arch.unwrap())?;
                 }
                 STREAM_TYPE_MODULE_LIST => modules = Self::parse_module_list(&mut cursor)?,
                 _ => unreachable!("Only parsing stream types we know about"),
-            };
+            }
         }
 
         // The system info stream is required to be parsed so we know we have a
@@ -852,21 +882,21 @@ impl<'a> UserDumpParser<'a> {
 
         // Phew, we have everything needed to build an instance!
         Ok(UserDumpParser {
-            _mapped_file,
-            arch,
             foreground_tid,
+            arch,
             mem_blocks,
             modules,
             threads,
+            _mapped_file: mapped_file,
         })
     }
 }
 
 /// Peek for a `T` from the cursor.
 fn peek_struct<T>(cursor: &mut Cursor) -> io::Result<T> {
-    let mut s = mem::MaybeUninit::uninit();
-    let size_of_s = mem::size_of_val(&s);
-    let slice_over_s = unsafe { slice::from_raw_parts_mut(s.as_mut_ptr() as *mut u8, size_of_s) };
+    let mut s = mem::MaybeUninit::<T>::uninit();
+    let size_of_s = size_of_val(&s);
+    let slice_over_s = unsafe { slice::from_raw_parts_mut(s.as_mut_ptr().cast::<u8>(), size_of_s) };
 
     let pos = cursor.position();
     cursor.read_exact(slice_over_s)?;
@@ -878,7 +908,7 @@ fn peek_struct<T>(cursor: &mut Cursor) -> io::Result<T> {
 /// Read a `T` from the cursor.
 fn read_struct<T>(cursor: &mut Cursor) -> io::Result<T> {
     let s = peek_struct(cursor)?;
-    let size_of_s = mem::size_of_val(&s);
+    let size_of_s = size_of_val(&s);
 
     cursor.seek(io::SeekFrom::Current(size_of_s.try_into().unwrap()))?;
 
@@ -889,7 +919,7 @@ fn read_struct<T>(cursor: &mut Cursor) -> io::Result<T> {
 fn utf16_string_from_slice(slice: &[u8]) -> io::Result<String> {
     // Every code point is 2 bytes, so we expect the length to be a multiple of
     // 2.
-    if (slice.len() % 2) != 0 {
+    if !slice.len().is_multiple_of(2) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "Slice length needs to be % 2",

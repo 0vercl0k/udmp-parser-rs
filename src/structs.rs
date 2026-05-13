@@ -73,6 +73,7 @@ pub struct SystemInfoStream {
 pub struct ExceptionRecord {
     pub exception_code: u32,
     pub exception_flags: u32,
+    #[expect(clippy::struct_field_names)]
     pub exception_record: u64,
     pub exception_address: u64,
     pub number_parameters: u32,
@@ -175,7 +176,7 @@ pub struct FixedFileInfo {
 }
 
 #[derive(Default, Debug)]
-#[repr(packed(1))]
+#[repr(C, packed(1))]
 pub struct ModuleEntry {
     pub base_of_image: u64,
     pub size_of_image: u32,
@@ -386,9 +387,17 @@ impl fmt::Display for ThreadContextX64 {
             self.r11, self.r12, self.r13
         )?;
         writeln!(f, "r14={:016x} r15={:016x}", self.r14, self.r15)?;
-        writeln!(f, "cs={:04x}  ss={:04x}  ds={:04x}  es={:04x}  fs={:04x} gs={:04x}              efl={:08x}",
-        self.seg_cs, self.seg_ss, self.seg_ds, self.seg_es, self.seg_fs, self.seg_gs,
-        self.eflags)?;
+        writeln!(
+            f,
+            "cs={:04x}  ss={:04x}  ds={:04x}  es={:04x}  fs={:04x} gs={:04x}              efl={:08x}",
+            self.seg_cs,
+            self.seg_ss,
+            self.seg_ds,
+            self.seg_es,
+            self.seg_fs,
+            self.seg_gs,
+            self.eflags
+        )?;
         writeln!(
             f,
             "fpcw={:04x}    fpsw={:04x}    fptw={:04x}",
