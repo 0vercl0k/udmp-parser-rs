@@ -74,7 +74,7 @@ jobs:
         run: cargo build --release --example parser
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v8
+        uses: actions/upload-artifact@v7
         with:
           name: parser-${{ matrix.os }}
           path: |

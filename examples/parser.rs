@@ -5,6 +5,7 @@ use std::result::Result;
 use udmp_parser::UserDumpParser;
 
 /// Command line argument.
+#[expect(clippy::struct_excessive_bools)]
 struct Cli {
     dump_path: String,
     show_all: bool,
@@ -62,7 +63,7 @@ fn parse_args() -> Result<Cli, String> {
                 if next == "main" {
                     show_foreground_thread = true;
                 } else {
-                    thread = next.parse().map(Some).unwrap_or(None);
+                    thread = next.parse().ok();
                 }
 
                 if show_foreground_thread || thread.is_some() {
@@ -78,9 +79,9 @@ fn parse_args() -> Result<Cli, String> {
                 idx += 1;
             }
             rest => {
-                return Err(format!("{} is not a valid option", rest));
+                return Err(format!("{rest} is not a valid option"));
             }
-        };
+        }
 
         idx += 1;
     }
@@ -107,10 +108,10 @@ fn hexdump(address: u64, mut data_iter: impl ExactSizeIterator<Item = u8>) {
     for i in (0..len).step_by(16) {
         print!("{:016x}: ", address + (i as u64 * 16));
         let mut row = [None; 16];
-        for item in row.iter_mut() {
+        for item in &mut row {
             if let Some(c) = data_iter.next() {
                 *item = Some(c);
-                print!("{:02x}", c);
+                print!("{c:02x}");
             } else {
                 print!(" ");
             }
@@ -277,7 +278,7 @@ fn main() -> Result<(), String> {
         }
         // .. otherwise, inform he user.
         else {
-            println!("No memory block were found for {:016x}", address);
+            println!("No memory block were found for {address:016x}");
         }
     }
 
