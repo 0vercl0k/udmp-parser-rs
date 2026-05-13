@@ -278,7 +278,7 @@ cfg_select! {
         }
     }
     _ => {
-        panic!();
+        compile_error!("unimplemented");
     }
 }
 
